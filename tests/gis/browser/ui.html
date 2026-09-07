@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>GIS existing UI regression</title>
+  </head>
+  <body>
+    <div
+      id="map"
+      style="position: fixed; left: 0; top: 0; width: 800px; height: 650px"
+    ></div>
+    <div id="app" style="margin-left: 820px; width: 550px"></div>
+    <script>
+      window.geoserver_url = '/fake-geoserver';
+      window.geoserver_workspace = 'GX';
+      window.config_path = '';
+    </script>
+    <script type="module" src="./ui.js"></script>
+  </body>
+</html>
