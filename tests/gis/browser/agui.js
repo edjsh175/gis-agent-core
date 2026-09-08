@@ -14,7 +14,12 @@ import { UnifiedHighlightManager } from '../../../src/components/pipeline/decisi
 import { useAguiWorkflow } from '../../../src/gis/integration/agui/useAguiWorkflow.js';
 if (!import.meta.env.DEV) throw new Error('Development-only test entry');
 
-await fetch('/__gis-agui/fixture-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+const backend = new URLSearchParams(window.location.search).get('backend') ?? 'deterministic';
+const harnessMode = backend === 'harness';
+const baseUrl = harnessMode ? '/__gis-harness' : '/__gis-agui';
+if (!harnessMode) {
+  await fetch('/__gis-agui/fixture-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+}
 const catalog = createLayerCatalog();
 catalog.update({ baseUrl: '/fixture-geoserver', workspace: 'GX', pipelineLayers: { water: { line: 'js_ln' } } }, [
   { id: 'water', label: '给水', config: { layerName: 'GX:js_ln' } },
@@ -54,16 +59,18 @@ const mapContext = createMapContext({
 const gis = { runtime, catalog, fileReferences, userVectors, createClientScope: () => runtime.createClientScope(), mapContext };
 const app = createApp({
   setup() {
-    const controller = useAguiWorkflow({ gis, baseUrl: '/__gis-agui' });
+    const controller = useAguiWorkflow({ gis, baseUrl });
     const start = (scenario = 'normal') => {
-      const message = scenario === 'vector'
-        ? '导入这个道路 SHP，把线改成红色 4px、80% 透明度，缩放到图层，然后隐藏。'
+      const message = harnessMode || scenario === 'vector'
+        ? '导入这个道路 SHP，把线改成红色 4px、80% 透明度，然后缩放到这个图层。'
         : '找到编号 GX001 的管线，定位并高亮。';
-      const pending = controller.start(message, { scenario });
+      const pending = harnessMode
+        ? controller.start(message)
+        : controller.start(message, { scenario });
       window.aguiTest.pending = pending;
       return pending;
     };
-    window.aguiTest = { ...controller, start, gis, map, layer, manager,
+    window.aguiTest = { ...controller, start, gis, map, layer, manager, backend,
       unmount: () => { app.unmount(); runtime.detachMap(map); map.dispose(); },
     };
     return () => h('div', [

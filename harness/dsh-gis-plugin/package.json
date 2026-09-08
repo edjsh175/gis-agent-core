@@ -1,0 +1,30 @@
+{
+  "name": "dsh-23dmaps-gis",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./service": "./src/gisFrontendService.js",
+    "./tools": "./src/gisTools.js",
+    "./fake-provider": "./src/fakeProvider.js",
+    "./pending-provider": "./src/pendingProvider.js",
+    "./agent-policy": "./src/gisAgentPolicy.js",
+    "./mock-llm": "./src/mockLlmProvider.js",
+    "./agui-bridge": "./src/aguiBridge.js"
+  },
+  "dependencies": {
+    "@ag-ui/core": "0.0.59"
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml",
+    "cordis.h0.patch.yml",
+    "cordis.browser-test.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

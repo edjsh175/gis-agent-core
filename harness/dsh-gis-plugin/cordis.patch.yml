@@ -1,0 +1,15 @@
+- insert:
+    - id: gis-frontend-service
+      name: dsh-23dmaps-gis/service
+    - id: gis-frontend-pending-provider
+      name: dsh-23dmaps-gis/pending-provider
+    - id: gis-user-vector-tools
+      name: dsh-23dmaps-gis/tools
+    - id: gis-ask-user-tool
+      name: '@deepseek-ai/dsh-tool-ask-user'
+    - id: gis-agent-policy
+      name: dsh-23dmaps-gis/agent-policy
+    - id: gis-agui-bridge
+      name: dsh-23dmaps-gis/agui-bridge
+      config:
+        leaseMs: 30000

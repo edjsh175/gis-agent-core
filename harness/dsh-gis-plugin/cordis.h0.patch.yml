@@ -1,0 +1,7 @@
+- insert:
+    - id: gis-frontend-service
+      name: dsh-23dmaps-gis/service
+    - id: gis-frontend-fake-provider
+      name: dsh-23dmaps-gis/fake-provider
+    - id: gis-user-vector-tools
+      name: dsh-23dmaps-gis/tools

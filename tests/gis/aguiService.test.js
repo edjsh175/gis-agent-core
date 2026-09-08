@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDeterministicAguiPlugin, PREFIX } from './agui/deterministicService.js';
+import { createRunEnvelope } from '../../src/gis/integration/agui/runEnvelope.js';
 
 const servers = [];
 afterEach(async () => { while (servers.length) { const server = servers.pop(); await new Promise((resolve) => server.close(resolve)); } });
@@ -12,6 +13,15 @@ const defaultTools = [
   { name: 'highlight_features', description: '高亮要素', parameters: { type: 'object' } },
 ];
 const input = (binding, runId, messages, tools = defaultTools) => ({ threadId: binding.threadId, runId, messages, tools, context: [], state: {}, forwardedProps: { gisIntegration: { browserSessionId: binding.browserSessionId, workflowId: binding.workflowId } } });
+
+describe('AG-UI run envelope', () => {
+  it('preserves a legitimate backend RUN_ERROR instead of misclassifying it as protocol corruption', () => {
+    const envelope = createRunEnvelope({ threadId: 'thread-1', runId: 'run-1', allowedTools: [] });
+    envelope.accept({ type: 'RUN_STARTED', threadId: 'thread-1', runId: 'run-1' });
+    expect(() => envelope.accept({ type: 'RUN_ERROR', message: 'MISSING_CREDENTIAL: unavailable' }))
+      .toThrowError(expect.objectContaining({ code: 'AGENT_RUN_FAILED', message: 'MISSING_CREDENTIAL: unavailable' }));
+  });
+});
 
 describe('deterministic AG-UI fixture service', () => {
   it('requires synthetic fixture auth and exact session binding', async () => { const { base } = await fixture(); expect((await post(base, `${PREFIX}/sessions`, {})).response.status).toBe(401); const login = await post(base, `${PREFIX}/fixture-login`, {}); const cookie = login.response.headers.get('set-cookie').split(';')[0]; const session = await post(base, `${PREFIX}/sessions`, {}, cookie); const binding = JSON.parse(session.text).data; expect(binding).not.toHaveProperty('userId'); expect((await post(base, `${PREFIX}/resolve`, { ...binding, threadId: 'other', feature_ref: { resultId: 'missing' } }, cookie)).response.status).toBe(403); });

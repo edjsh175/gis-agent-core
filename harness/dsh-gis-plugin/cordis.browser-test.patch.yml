@@ -1,0 +1,9 @@
+- insert:
+    - id: gis-browser-test-llm
+      name: dsh-23dmaps-gis/mock-llm
+    - id: gis-agui-bridge
+      name: dsh-23dmaps-gis/agui-bridge
+      config:
+        leaseMs: 30000
+        provider: gis-browser-test
+        model: gis-browser-test

@@ -1,18 +1,21 @@
 {
   "name": "gis-agent-core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "GIS Agent Integration Capabilities, Runtime Adapters and Contracts for WebGIS",
   "main": "src/gis/contracts.js",
   "type": "module",
   "scripts": {
     "test": "vitest run --config vitest.config.js",
     "test:gis": "vitest run --config vitest.config.js",
-    "test:gis:e2e": "playwright test --config playwright.config.js"
+    "test:gis:e2e": "playwright test --config playwright.config.js",
+    "test:gis:harness-e2e": "playwright test --config playwright.gis-harness.config.js",
+    "test:gis:harness-real-e2e": "playwright test --config playwright.gis-harness-real.config.js"
   },
   "keywords": [
     "gis",
     "agent",
     "ag-ui",
+    "cordis",
     "openlayers",
     "cesium",
     "geoserver",

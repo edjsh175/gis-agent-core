@@ -18,7 +18,7 @@ export function createRunEnvelope({ threadId, runId, allowedTools }) {
       }
       if (!started) fail();
       switch (event.type) {
-        case 'RUN_ERROR': fail(); break;
+        case 'RUN_ERROR': throw gisError('AGENT_RUN_FAILED', event.message || 'Agent run failed.');
         case 'TOOL_CALL_START':
           if (call || !allowedTools.includes(event.toolCallName) || !event.toolCallId) fail();
           call = { toolCallId: event.toolCallId, name: event.toolCallName, rawArguments: '', ended: false };
