@@ -1,10 +1,10 @@
 # GIS Agent Integration / AG-UI PRD
 
-状态：已开始第一批引用与地图观察契约实现；AG-UI 协议端点、SDK 与 Agent 尚未接入。更新：2026-09-07。实施范围及验证见 [第一批实施记录](./agent-integration-record.md)。本文只新增集成层，不推翻 [Capability Layer PRD](./capability-layer-prd.md)。
+状态：AG-UI SDK + HTTP/SSE + Vue Frontend Tool 往返的 G0 已完成确定性验证；G1-lite（scope/generation/cancel/stale/去重/用户操作优先）已具备。当前 PoC 已新增 User Vector Capability，并通过 `file_ref → layer_ref → style → fit → visibility` 的确定性浏览器 Gold Case。真实 LLM Agent、真实 GeoServer 与生产级 auth/lease 仍未完成。更新：2026-09-08。实施范围及验证见 [实施记录](./agent-integration-record.md)。本文只新增集成层，不推翻 [Capability Layer PRD](./capability-layer-prd.md)。
 
 ## 1. 阶段与架构决策
 
-先完成 [迁移与验收计划](./migration-and-acceptance.md) 的 M1–M6，验证本地 queryFeatures → locateFeatures → highlightFeatures。紧接着优先采用 AG-UI 作为 Agent ↔ 浏览器协议，采用 Frontend Tool + Shared State + Tool Result 模式；不默认另造 Browser Command Bridge。
+本地 queryFeatures → locateFeatures → highlightFeatures 已完成，AG-UI Frontend Tool + Shared State + Tool Result 的浏览器真实往返也已完成 G0。当前技术验证优先级转为 User Vector Capability：先让 UI 与 Agent 共用同一套用户矢量对象模型，再接真实 LLM；不默认另造 Browser Command Bridge，也不让生产级认证阻塞 PoC。
 
 “首选协议已确定”不等于“项目已接入”：正式集成前须通过本文的 Vue/Agent 适配验证。若选用的 Agent 框架无法完成标准前端工具往返，先修正或更换适配器；只有记录明确协议缺口及替代方案后才重新评审，不静默退回自研协议。
 
@@ -61,10 +61,14 @@
 | highlight_features | 当前浏览器 | feature_ref、group?、mode?、effect? | scope.highlightFeatures，默认值沿用原 PRD |
 | clear_highlight | 当前浏览器 | group? | scope.clearHighlight，仅当前 Agent workflow owner |
 | set_layer_visibility | 当前浏览器 | layerId、visible | scope.setLayerVisibility |
+| import_vector_dataset | 当前浏览器 | file_ref、name? | scope.importVectorDataset；创建独立用户 VectorLayer 并返回 layer_ref |
+| set_vector_style | 当前浏览器 | layer_ref、style | scope.setVectorStyle；使用稳定 GIS Style Contract |
+| fit_vector_layer | 当前浏览器 | layer_ref | scope.fitVectorLayer；等待视图动作完成 |
+| set_user_layer_visibility | 当前浏览器 | layer_ref、visible | scope.setUserLayerVisibility |
 
 只把本次允许且当前场景支持的 Frontend Tools 放入 RunAgentInput.tools。后端仍核对工具白名单；收到未知工具、额外参数或不合法 JSON 不执行。工具 schema 不接收 JavaScript、任意请求 URL、sessionId、owner 或“选择最新地图”的参数。
 
-共享状态展示当前二维就绪、已加载图层和能力可用性；三维或地图未就绪时不宣称定位/高亮可用。声明之后发生场景切换，执行前仍按 runtime 检查，不能依赖旧工具列表当作授权。
+共享状态展示当前二维就绪、已加载业务图层、用户图层摘要、浏览器已登记文件引用和能力可用性；三维或地图未就绪时不宣称二维操作可用。`availableFiles` 只包含 `file_ref/name/format/parts`，`userLayers` 只包含 `layer_ref/name/geometryTypes/featureCount/visible/style`，不向模型暴露 File、完整 Feature、geometry、VectorLayer/VectorSource 或 Pinia。声明之后发生场景切换，执行前仍按 runtime 检查，不能依赖旧工具列表当作授权。
 
 ### 3.2 默认传输与续跑
 
@@ -97,7 +101,7 @@
 
 业务工具失败后的 failed 状态只关闭效果执行资格，不禁止结果交付：保留原 pending toolCallId，将失败 ToolMessage 回传，并允许一次仅用于解释失败的续跑（Frontend tools 为空，后端禁用新的 GIS 工具）；该续跑不得创建新 scope 或执行地图动作，结束后仍为 failed。协议已损坏、用户取消或连接不可用时不强制续跑，只记录未交付结果。结果交付记录与 scope 生命周期分离，避免 dispose 导致 Agent 永远收不到定位失败的原因。
 
-页面绑定采用服务端 90 秒租约，由活跃页面每 30 秒通过同源已鉴权的会话续租请求更新；这是项目会话管理，不是 AG-UI 新事件。服务端返回到期时间，客户端用不晚于服务端期限的本地单调时钟预算检查（从续租请求发出时起计时，扣除往返耗时），在执行前/回调提交前检查并在到期时取消旧 scope。正常退出/刷新尽力撤销绑定；异常退出不承诺服务端瞬时感知，最迟在最后一次成功续租后 90 秒失效。新页面只能在旧绑定已撤销或租约过期后重新绑定；等待期间显示冲突，不自动抢占。过期 session 不得续租复活，需新建；旧 pending call、引用和迟到结果同时失效。此规则防止旧标签页失联后永久占用 thread，也禁止新页面接管旧动作。
+生产目标仍采用服务端 90 秒租约并计划由活跃页面周期续租；这是项目会话管理，不是 AG-UI 新事件。当前技术验证只保留 G1-lite 所需的 scope/generation/cancel/stale/去重/用户操作优先，完整续租、跨标签页生产冲突与真实认证降为后续 P1，不作为 User Vector PoC 阻塞项。服务端返回到期时间，客户端用不晚于服务端期限的本地单调时钟预算检查（从续租请求发出时起计时，扣除往返耗时），在执行前/回调提交前检查并在到期时取消旧 scope。正常退出/刷新尽力撤销绑定；异常退出不承诺服务端瞬时感知，最迟在最后一次成功续租后 90 秒失效。新页面只能在旧绑定已撤销或租约过期后重新绑定；等待期间显示冲突，不自动抢占。过期 session 不得续租复活，需新建；旧 pending call、引用和迟到结果同时失效。此规则防止旧标签页失联后永久占用 thread，也禁止新页面接管旧动作。
 
 会话 ID 不是凭证；后端对 run、引用解析、取消和结果提交统一鉴权。重连/刷新不自动重新授权旧地图动作。已有 UI owner 与 Agent owner 分离，Agent 不能清除 UI 的查询或绘制资源。
 
@@ -140,7 +144,7 @@ layers 的 loaded 为 complete/partial/none/ambiguous；仅完整唯一绑定且
 
 | 区域 | 权威来源 | 共享字段 |
 | --- | --- | --- |
-| gisObserved | 当前浏览器观察适配器 | MapContext：schemaVersion、revision、dimension、ready、supportedTools、layers、visibleLayers、viewport、selection、highlight |
+| gisObserved | 当前浏览器观察适配器 | MapContext：schemaVersion、revision、dimension、ready、supportedTools、layers、visibleLayers、viewport、selection、highlight、availableFiles、userLayers |
 | agent | 后端 Agent | 当前 workflow 状态、步骤、提示、结果引用摘要 |
 | 执行元数据 | 浏览器执行器与受信服务 | browserSessionId、generation、workflow/run 关联、lastEffect；不作为模型动作参数 |
 | 本地私有 | 浏览器执行器 | scope/owner 实例、地图对象、引用缓存、执行队列、去重记录 |
@@ -197,10 +201,11 @@ Agent 只有收到 ok=true 且 applied 后才可说相应动作完成。已提�
 
 | 阶段 | 工作 | 出口 |
 | --- | --- | --- |
-| G0 协议适配验证 | 锁定 core/client 与后端 adapter 版本；Vue 测试入口接一个确定性 AG-UI 端点；一个前端工具及 role=tool 续跑，snapshot/delta 与 abort | 验证真实往返，不以 React 示例或静态事件文件代替；证明后端能消费前端结果后再继续 |
-| G1 绑定与状态 | 登记 session/workflow/run，捕获既有 scope；接只读地图投影及权限校验 | 两标签页隔离、刷新失效、取消与用户操作优先通过 |
-| G2 数据引用与二维工具 | 后端只读查询、结果快照解析；四个前端工具委托已有能力 | 编号查询 → 定位 → 高亮往返通过；没有 GIS 重复实现 |
-| G3 集成验收 | 真实服务、异常事件、重复/迟到结果、断开、状态恢复 | 以下场景通过后才宣布 Agent 集成可用；本期 Capability 验收记录保持独立 |
+| G0 协议适配验证 | `@ag-ui/client/core`、HTTP/SSE、Vue Frontend Tool、role=tool 续跑、snapshot/delta、abort | **已完成确定性浏览器验收** |
+| G1-lite 绑定与状态 | workflow/scope/generation、取消、STALE_CONTEXT、toolCall 去重、用户操作优先 | **已完成 PoC 所需部分**；完整生产 auth/lease/多标签页冲突后置 |
+| G2a 查询与二维工具 | 结果引用解析；定位/高亮等前端工具委托已有 Capability | **已完成确定性往返**；真实 GeoServer 未完成 |
+| G2b User Vector | file_ref、独立用户 VectorLayer、layer_ref、Style Contract、fit、visibility、MapContext userLayers | **已完成确定性 Gold Case** |
+| G3 Agent 编排与真实集成 | 接真实 LLM，自主根据 Tool Result 决定下一步；真实服务与异常验收 | **未开始/未完成**；不得用 deterministic fixture 冒充 LLM Agent |
 
 必须验收的场景：
 

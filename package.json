@@ -1,6 +1,6 @@
 {
   "name": "gis-agent-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "GIS Agent Integration Capabilities, Runtime Adapters and Contracts for WebGIS",
   "main": "src/gis/contracts.js",
   "type": "module",
@@ -12,6 +12,7 @@
   "keywords": [
     "gis",
     "agent",
+    "ag-ui",
     "openlayers",
     "cesium",
     "geoserver",
@@ -20,6 +21,9 @@
   "author": "edjsh175 <2923766417@qq.com>",
   "license": "MIT",
   "dependencies": {
+    "@ag-ui/client": "0.0.59",
+    "@ag-ui/core": "0.0.59",
+    "fast-json-patch": "3.1.1",
     "ol": "^10.6.1"
   },
   "devDependencies": {

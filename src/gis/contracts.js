@@ -14,6 +14,13 @@
  * @property {(input:HighlightInput)=>Promise<Result<{featureCount:number,group:string}>>} highlightFeatures
  * @property {(input?:{group?:'results'|'selection'})=>Promise<Result<{clearedCount:number}>>} clearHighlight
  * @property {(input:{layerId:string,visible:boolean})=>Promise<Result<{layerId:string,visible:boolean,bindingCount:number}>>} setLayerVisibility
+ * @property {(input:{file_ref:string,name?:string,style?:object})=>Promise<Result<object>>} importVectorDataset
+ * @property {(input:{layer_ref:string,style:object})=>Promise<Result<object>>} setVectorStyle
+ * @property {(input:{layer_ref:string})=>Promise<Result<{layer_ref:string,featureCount:number}>>} fitVectorLayer
+ * @property {(input:{layer_ref:string,visible:boolean})=>Promise<Result<{layer_ref:string,visible:boolean}>>} setUserLayerVisibility
+ * @property {(input:{layer_ref:string})=>Promise<Result<{layer_ref:string,removed:boolean}>>} removeUserLayer
+ * @property {()=>Promise<Result<object[]>>} listUserLayers
+ * @property {(input:{layer_ref:string})=>Promise<Result<object>>} getUserLayerInfo
  * @property {()=>boolean} isActive
  * @property {()=>void} dispose
  */

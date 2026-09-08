@@ -1,10 +1,43 @@
 import GeoJSON from 'ol/format/GeoJSON.js';
 import { createEmpty, extend } from 'ol/extent.js';
 import { toLonLat } from 'ol/proj.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
+import Style from 'ol/style/Style.js';
+import Stroke from 'ol/style/Stroke.js';
+import Fill from 'ol/style/Fill.js';
+import CircleStyle from 'ol/style/Circle.js';
 import manager from '../../components/pipeline/decision/common/UnifiedHighlightManager.js';
 import { getQueryResultStyle } from '../../components/pipeline/decision/common/HighlightStyleUtils.js';
 import { startBlinkingEffect } from '../../components/pipeline/decision/common/BlinkingEffectUtils.js';
 import { gisError } from '../contracts.js';
+
+const rgba = (hex, opacity) => {
+  const value = hex.slice(1);
+  const red = Number.parseInt(value.slice(0, 2), 16);
+  const green = Number.parseInt(value.slice(2, 4), 16);
+  const blue = Number.parseInt(value.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${opacity})`;
+};
+
+const createUserVectorStyle = (style) => {
+  const stroke = new Stroke({
+    color: rgba(style.stroke.color, style.stroke.opacity),
+    width: style.stroke.width,
+  });
+  const fill = new Fill({ color: rgba(style.fill.color, style.fill.opacity) });
+  const point = new Style({
+    image: new CircleStyle({ radius: style.radius, fill, stroke }),
+  });
+  const line = new Style({ stroke });
+  const polygon = new Style({ stroke, fill });
+  return (feature) => {
+    const type = feature.getGeometry()?.getType();
+    if (type === 'Point' || type === 'MultiPoint') return point;
+    if (type === 'LineString' || type === 'MultiLineString') return line;
+    return polygon;
+  };
+};
 
 const boundLayers = (map, layer) => {
   const available = map.getAllLayers
@@ -41,6 +74,56 @@ export function createOpenLayersAdapter({
     );
     matching.forEach((record) => remove(map, record));
     return matching.length;
+  };
+  const fitExtent = (map, extent, { signal, assertActive }) => {
+    animations.get(map)?.();
+    const view = map.getView();
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (completed) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener('abort', cancel);
+        if (animations.get(map) === cancel) animations.delete(map);
+        try {
+          assertActive();
+          if (!completed) throw gisError('OPERATION_CANCELLED');
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      };
+      const cancel = () => {
+        view.cancelAnimations();
+        finish(false);
+      };
+      animations.set(map, cancel);
+      signal.addEventListener('abort', cancel, { once: true });
+      if (signal.aborted) {
+        cancel();
+        return;
+      }
+      try {
+        assertActive();
+        if (extent[0] === extent[2] && extent[1] === extent[3])
+          view.animate(
+            { center: extent.slice(0, 2), zoom: 18, duration: 1000 },
+            finish
+          );
+        else
+          view.fit(extent, {
+            padding: [40, 40, 40, 40],
+            maxZoom: 18,
+            duration: 1000,
+            callback: finish,
+          });
+      } catch (error) {
+        settled = true;
+        signal.removeEventListener('abort', cancel);
+        animations.delete(map);
+        reject(error);
+      }
+    });
   };
   return {
     readMapContext(map, catalogLayers) {
@@ -156,58 +239,11 @@ export function createOpenLayersAdapter({
       });
     },
     locate(map, features, { signal, assertActive }) {
-      animations.get(map)?.();
-      const view = map.getView();
       const extent = features.reduce(
         (bounds, feature) => extend(bounds, feature.getGeometry().getExtent()),
         createEmpty()
       );
-      return new Promise((resolve, reject) => {
-        let settled = false;
-        const finish = (completed) => {
-          if (settled) return;
-          settled = true;
-          signal.removeEventListener('abort', cancel);
-          if (animations.get(map) === cancel) animations.delete(map);
-          try {
-            assertActive();
-            if (!completed) throw gisError('OPERATION_CANCELLED');
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-        };
-        const cancel = () => {
-          view.cancelAnimations();
-          finish(false);
-        };
-        animations.set(map, cancel);
-        signal.addEventListener('abort', cancel, { once: true });
-        if (signal.aborted) {
-          cancel();
-          return;
-        }
-        try {
-          assertActive();
-          if (extent[0] === extent[2] && extent[1] === extent[3])
-            view.animate(
-              { center: extent.slice(0, 2), zoom: 18, duration: 1000 },
-              finish
-            );
-          else
-            view.fit(extent, {
-              padding: [40, 40, 40, 40],
-              maxZoom: 18,
-              duration: 1000,
-              callback: finish,
-            });
-        } catch (error) {
-          settled = true;
-          signal.removeEventListener('abort', cancel);
-          animations.delete(map);
-          reject(error);
-        }
-      });
+      return fitExtent(map, extent, { signal, assertActive });
     },
     async highlight(
       map,
@@ -306,6 +342,56 @@ export function createOpenLayersAdapter({
         throw error;
       }
       return { layerId: layer.id, visible, bindingCount: targets.length };
+    },
+    createUserVectorLayer(map, features, { layerRef, name, style }) {
+      const formatter = new GeoJSON();
+      const converted = features.map((feature) => {
+        if (!feature || feature.type !== 'Feature' || !feature.geometry)
+          throw gisError('INVALID_GEOMETRY');
+        validateGeometry(feature.geometry);
+        const item = formatter.readFeature(
+          {
+            type: 'Feature',
+            geometry: feature.geometry,
+            properties: feature.properties || {},
+          },
+          {
+            dataProjection: 'EPSG:4326',
+            featureProjection: map.getView().getProjection(),
+          }
+        );
+        if (!item.getGeometry()?.getExtent().every(Number.isFinite))
+          throw gisError('INVALID_GEOMETRY');
+        return item;
+      });
+      if (!converted.length) throw gisError('EMPTY_VECTOR_DATASET');
+      const source = new VectorSource({ features: converted });
+      const layer = new VectorLayer({ source, visible: true });
+      layer.set('name', `user:${layerRef}`);
+      layer.set('gisUserLayerRef', layerRef);
+      layer.set('gisUserLayerName', name);
+      layer.setStyle(createUserVectorStyle(style));
+      map.addLayer(layer);
+      return {
+        layer,
+        featureCount: converted.length,
+        geometryTypes: [...new Set(converted.map((item) => item.getGeometry().getType()))].sort(),
+      };
+    },
+    setUserVectorStyle(layer, style) {
+      layer.setStyle(createUserVectorStyle(style));
+    },
+    fitUserVectorLayer(map, layer, options) {
+      const extent = layer.getSource()?.getExtent?.();
+      if (!extent?.every(Number.isFinite))
+        throw gisError('EMPTY_VECTOR_DATASET');
+      return fitExtent(map, extent, options);
+    },
+    setUserVectorVisibility(layer, visible) {
+      layer.setVisible(visible);
+    },
+    removeUserVectorLayer(map, layer) {
+      map.removeLayer(layer);
     },
     dispose(map) {
       animations.get(map)?.();

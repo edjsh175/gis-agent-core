@@ -5,6 +5,8 @@ import { createDataCapabilities } from './data/createDataCapabilities.js';
 import { createOpenLayersAdapter } from './adapters/openlayersAdapter.js';
 import { createMapRuntime } from './runtime/createMapRuntime.js';
 import { createMapContext } from './integration/createMapContext.js';
+import { createFileReferenceStore } from './user-vector/fileReferenceStore.js';
+import { createUserVectorCapabilities } from './user-vector/createUserVectorCapabilities.js';
 
 const applications = new WeakMap();
 
@@ -27,7 +29,13 @@ export function useGisCapabilities() {
   const adapter = createOpenLayersAdapter({
     styleConfig: window.highlight_style_config || {},
   });
+  const fileReferences = createFileReferenceStore();
+  const userVectors = createUserVectorCapabilities({
+    adapter,
+    fileReferences,
+  });
   const runtime = createMapRuntime({
+    userVectors,
     catalog,
     adapter,
     state: {
@@ -41,10 +49,14 @@ export function useGisCapabilities() {
     runtime,
     catalog,
     readMap: adapter.readMapContext,
+    readUserLayers: userVectors.readMapContext,
+    readAvailableFiles: () => fileReferences.list(),
   });
   const application = {
     catalog,
     runtime,
+    fileReferences,
+    userVectors,
     mapContext: {
       getSnapshot() {
         refresh();

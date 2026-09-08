@@ -7,6 +7,7 @@ export function createClientCapabilities({
   adapter,
   catalog,
   state,
+  userVectors = null,
   isCurrent,
   onDispose,
 }) {
@@ -33,6 +34,11 @@ export function createClientCapabilities({
       return asFailure(error);
     }
   };
+  const vectorScope = userVectors?.createScope({
+    map,
+    signal: controller.signal,
+    assertActive,
+  });
   const checkFeatures = (features) => {
     if (!Array.isArray(features) || !features.length)
       throw gisError('INVALID_ARGUMENT', 'features 必须为非空数组');
@@ -116,6 +122,41 @@ export function createClientCapabilities({
           assertActive
         );
       });
+    },
+    importVectorDataset(input) {
+      return vectorScope
+        ? vectorScope.importVectorDataset(input)
+        : Promise.resolve(asFailure(gisError('UNSUPPORTED_CAPABILITY')));
+    },
+    setVectorStyle(input) {
+      return vectorScope
+        ? vectorScope.setVectorStyle(input)
+        : Promise.resolve(asFailure(gisError('UNSUPPORTED_CAPABILITY')));
+    },
+    fitVectorLayer(input) {
+      return vectorScope
+        ? vectorScope.fitVectorLayer(input)
+        : Promise.resolve(asFailure(gisError('UNSUPPORTED_CAPABILITY')));
+    },
+    setUserLayerVisibility(input) {
+      return vectorScope
+        ? vectorScope.setUserLayerVisibility(input)
+        : Promise.resolve(asFailure(gisError('UNSUPPORTED_CAPABILITY')));
+    },
+    removeUserLayer(input) {
+      return vectorScope
+        ? vectorScope.removeUserLayer(input)
+        : Promise.resolve(asFailure(gisError('UNSUPPORTED_CAPABILITY')));
+    },
+    listUserLayers() {
+      return vectorScope
+        ? vectorScope.listUserLayers()
+        : Promise.resolve(asFailure(gisError('UNSUPPORTED_CAPABILITY')));
+    },
+    getUserLayerInfo(input) {
+      return vectorScope
+        ? vectorScope.getUserLayerInfo(input)
+        : Promise.resolve(asFailure(gisError('UNSUPPORTED_CAPABILITY')));
     },
     dispose() {
       if (disposed) return;

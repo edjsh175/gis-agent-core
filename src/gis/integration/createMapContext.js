@@ -1,7 +1,13 @@
 import { success, asFailure, gisError } from '../contracts.js';
 
 /** Read on demand at run boundaries. No protocol state can write into this reader. */
-export function createMapContext({ runtime, catalog, readMap }) {
+export function createMapContext({
+  runtime,
+  catalog,
+  readMap,
+  readUserLayers,
+  readAvailableFiles,
+}) {
   let revision = 0;
   let signature;
   return {
@@ -12,11 +18,13 @@ export function createMapContext({ runtime, catalog, readMap }) {
         const map = runtime.getMap();
         const supported = before.ready && before.scene === '2d';
         const observed = supported ? readMap(map, catalog.listLayers()) : null;
+        const userLayers = supported && readUserLayers ? readUserLayers(map) : null;
+        const availableFiles = readAvailableFiles ? readAvailableFiles() : null;
         const after = runtime.getState();
         if (before.generation !== after.generation || map !== runtime.getMap())
           throw gisError('STALE_CONTEXT');
         const context = {
-          schemaVersion: 1,
+          schemaVersion: 2,
           dimension: before.scene,
           ready: before.ready,
           supportedTools: supported
@@ -25,6 +33,14 @@ export function createMapContext({ runtime, catalog, readMap }) {
                 'highlight_features',
                 'clear_highlight',
                 'set_layer_visibility',
+                ...(readUserLayers
+                  ? [
+                      'import_vector_dataset',
+                      'set_vector_style',
+                      'fit_vector_layer',
+                      'set_user_layer_visibility',
+                    ]
+                  : []),
               ]
             : [],
           viewport: observed?.viewport ?? null,
@@ -35,6 +51,8 @@ export function createMapContext({ runtime, catalog, readMap }) {
               .map((layer) => layer.layerId) ?? null,
           selection: null,
           highlight: observed?.highlight ?? null,
+          userLayers,
+          availableFiles,
         };
         // A rebuilt but visually identical map is still a new observation.
         const nextSignature = JSON.stringify([

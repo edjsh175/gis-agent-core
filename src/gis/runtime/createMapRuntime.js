@@ -1,7 +1,7 @@
 import { createClientCapabilities } from '../client/createClientCapabilities.js';
 
 /** Map instances enter only here. A scope never follows a replacement map. */
-export function createMapRuntime({ adapter, catalog, state }) {
+export function createMapRuntime({ adapter, catalog, state, userVectors = null }) {
   let map = null;
   let scene = '2d';
   let generation = 0;
@@ -12,7 +12,10 @@ export function createMapRuntime({ adapter, catalog, state }) {
   const invalidate = () => {
     generation++;
     for (const scope of [...scopes]) scope.dispose();
-    if (map && scene === '2d') adapter.dispose(map);
+    if (map && scene === '2d') {
+      userVectors?.disposeMap(map);
+      adapter.dispose(map);
+    }
     map = null;
   };
   const runtime = {
@@ -52,6 +55,7 @@ export function createMapRuntime({ adapter, catalog, state }) {
         adapter,
         catalog,
         state,
+        userVectors,
         isCurrent: () =>
           capturedGeneration === generation && capturedMap === map,
         onDispose: () => scopes.delete(scope),

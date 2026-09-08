@@ -1,30 +1,161 @@
-# Agent 集成第一批实施记录
+# GIS Agent / AG-UI 实施记录
 
-日期：2026-09-07。范围：结果引用与 MapContext 基础契约。AG-UI SDK、HTTP/SSE 端点、远程会话鉴权和模型尚未接入，本记录不代表 Agent 往返验收通过。
+日期：2026-09-08。
 
-## 架构决策
+## 当前结论
 
-- CapabilityFeature 仍是定位/高亮的数据载荷。FeatureIdentity 描述 layerId + sourceFeatureId，不能替代查询快照。FeatureRef 指向不可变结果及可选下标，源 ID 缺失仍可引用。
-- 引用存储是纯 JavaScript 集成模块，时钟与结果 ID 生成器可注入；默认随机 UUID。它验证传入绑定的一致性，但不负责证明调用者身份。未来服务入口必须从已认证上下文构建 binding，不能直接信任模型或浏览器提交的 userId。
-- 首批快照期限取登记时页面租约与十分钟上限中较早者，读取和续租都不延长已登记快照。这是保守的固定期限策略；后续租约服务如要支持续租，须显式调整契约并补验收，不能让旧引用悄悄复活。
-- MapContext 按需从当前地图读取，不维护另一份可写地图状态。相同观察保持 revision；地图代次/目录版本变化也递增 revision，但不向模型暴露 generation 或 owner。
-- 可观察的高亮只覆盖能力适配器管理的资源。用户选择尚无统一权威来源，返回 null；不能以空集合假装已经完成选择状态接入。
-- 三维保持 runtime readiness 的事实，但观察内容为 null、前端工具可用列表为空。能力是否可以执行仍由原 Client Scope 检查。
+当前已经完成两条确定性技术验证链路：
 
-## 程序入口
+1. 业务查询结果 → `feature_ref` → locate → highlight → Tool Result → AG-UI 续跑。
+2. 浏览器用户文件 → `file_ref` → import vector → `layer_ref` → style → fit → visibility → Tool Result → AG-UI 续跑。
 
-应用内通过 `useGisCapabilities().mapContext.getSnapshot()` 取得 Result 包装的纯 JSON 观察。读取结果不能修改地图，也不包含坐标全集、属性全集或引擎对象。
+这证明了 **后端 Agent Runtime 可以通过 AG-UI 驱动当前浏览器中的 GIS Capability，并等待真实地图效果回执后继续运行**。
 
-引用存储模块提供 register、resolve、revokeWorkflow、dispose。register 只登记成功查询的数据并返回引用摘要；resolve 只读取原快照，不联网补查。现有 Vue 查询 UI 继续直接传递 features，不引入额外缓存路径。
+当前后端仍是 `tests/gis/agui/deterministicService.js` 的确定性 Fixture，不是 LLM。真实 GeoServer、真实 LLM Agent、生产认证、完整租约续期和跨标签页生产冲突仍未完成。
 
-## 验证与边界
+## 架构边界
 
-`npm run test:gis`：39/39 通过，其中新增 15 项引用与观察测试。`npm run test:gis:e2e`：8/8 通过，新增真实浏览器 MapContext 回归。`npm run build` 通过，保留原有大分块及布局静态/动态导入警告。自动化使用合成查询数据与本地 OpenLayers；真实 GeoServer 仍未联调。
+保持以下边界不变：
 
-已覆盖不可变结果、空结果、缺源 ID/几何、下标顺序与非法下标、跨用户/页面/thread/workflow 隔离、配置失效、固定期限、撤销、配额和 ID 分配失败，以及循环/访问器等非 JSON 输入。观察测试覆盖坐标转换、父分组显隐、绑定缺失/歧义、高亮源清理、地图重建、三维未知状态和对象形式源 ID 不泄漏载荷。
+```text
+UI / Agent
+    ↓
+GIS Capability
+    ↓
+Map Runtime / Client Scope
+    ↓
+OpenLayers Adapter
+```
 
-独立审查发现并修复了旧调用方对象形式源 ID 可能进入共享摘要的问题；引用存储的隔离、配额、期限与复制策略经复审无新增实质问题。测试不代表远程鉴权已实现；传入绑定目前必须来自可信组装代码。
+Agent 不直接调用 Vue Component、Pinia、`window.map2d` 或 OpenLayers 实例。AG-UI 只负责 Agent ↔ 浏览器的协议往返，不承载 GIS 对象语义。
 
-下一批完成确定性 AG-UI 服务与前端工具往返：协议事件校验、绑定到既有 scope、异步引用解析前后检查、工具回执续跑、取消与去重。MapContext 的交互结束订阅和用户操作优先策略在该批接入；本批按需读取不提供运行中的自动取消保证。
+## User Vector Capability
 
-Capability 的原审计与实施快照保留历史含义，不覆盖旧哈希。第一批文件 SHA-256 见 [独立快照](./agent-integration-snapshot.json)，便于区分各阶段源码与验收结果。
+2026-09-08 最终收口：`FeaturePanel`、`LoadShp` 与 `pipeline/index.vue` 的 SHP 导入都已统一委托 `FileReferenceStore → User Vector Capability → OpenLayers Adapter`。活动业务路径不再直接 `window.map2d` / `new VectorLayer`，不再把 SHP 写入 `plottingStore` / `MY_VECTOR_LAYER`；`shapefile` 解析只保留在 `readVectorDataset.js` 单点实现。`shapeManager.js` 仅保留委托到同一实现的旧 API 兼容门面，当前源码无活动调用方。
+
+
+新增 `src/gis/user-vector/`：
+
+- `fileReferenceStore.js`：把浏览器 File/Blob 登记为不可猜测 `file_ref`；首版只接受同名 `.shp + .dbf`。
+- `readVectorDataset.js`：统一 SHP 解码入口；旧 `shapeManager` 也委托这里，避免第三套 SHP parser。
+- `styleContract.js`：定义稳定的 stroke/fill/radius GIS 样式契约，不暴露旧 UI 字段。
+- `createUserVectorCapabilities.js`：维护当前 Map generation 下的用户矢量对象注册表和 `layer_ref` 生命周期。
+
+用户导入一份数据后得到独立 `VectorLayer`，而不是继续把所有 SHP Feature 塞进共享 `MY_VECTOR_LAYER`。
+
+标准对象链：
+
+```text
+Browser File
+→ file_ref
+→ import_vector_dataset
+→ independent VectorLayer
+→ layer_ref
+→ set_vector_style / fit_vector_layer / set_user_layer_visibility
+```
+
+`layer_ref` 可以跨同一地图 generation 内的多个 workflow scope 继续使用；地图 detach / scene replacement 后注册表和实际用户图层同时失效，旧 scope 返回 `STALE_CONTEXT`。
+
+## UI 迁移
+
+`FeaturePanel.vue` 的 SHP 入口已经改为：
+
+```text
+选择 .shp + .dbf
+→ fileReferences.registerVectorDataset
+→ createClientScope
+→ importVectorDataset
+```
+
+不再把该 SHP 同时写入 `plottingStore → MY_VECTOR_LAYER`，避免一份数据出现两套对象身份和重复渲染。
+
+旧绘制/GeoJSON 路径暂未整体迁移，本阶段只收敛 SHP Gold Case。
+
+## AG-UI Frontend Tools
+
+新增 P0 Tools：
+
+- `import_vector_dataset(file_ref, name?)`
+- `set_vector_style(layer_ref, style)`
+- `fit_vector_layer(layer_ref)`
+- `set_user_layer_visibility(layer_ref, visible)`
+
+工具继续经过统一 `frontendExecutor`：参数 schema fail-closed、同 run/toolCall 去重、按 workflow 串行执行、执行前后检查 scope、动作完成后读取最新 MapContext，并返回 `effect.status`。
+
+用户矢量导入/删除被标记为 Capability 自身图层变化，fit 复用 locate 的视图效果标记，显隐复用 visibility 标记，因此不会被“用户操作优先”监听器误取消自身 workflow。
+
+## MapContext
+
+MapContext schema 升级为 v2，新增：
+
+```text
+availableFiles[]
+  file_ref
+  name
+  format
+  parts
+
+userLayers[]
+  layer_ref
+  name
+  geometryTypes
+  featureCount
+  visible
+  style
+```
+
+不会把浏览器 File、本机路径、Feature 全集、geometry、VectorLayer、VectorSource 或 Pinia 状态传给模型。
+
+## 确定性 Gold Case
+
+当前浏览器 E2E 新增场景：
+
+```text
+用户已提供 roads.shp + roads.dbf
+→ MapContext 暴露 vf_roads
+→ import_vector_dataset
+→ ul_roads
+→ set_vector_style(red, 4px, 0.8)
+→ fit_vector_layer
+→ set_user_layer_visibility(false)
+→ 每步 receipt.effect.status = applied
+→ 后端消费四个 Tool Result
+→ 第五个 Run 无待执行工具
+→ completed
+```
+
+浏览器测试使用真实 OpenLayers `VectorLayer/VectorSource/Style/View`；为了让测试不依赖仓库外二进制 SHP 文件，E2E 的数据解码器注入固定 GeoJSON Feature。`file_ref/layer_ref/AG-UI/OL` 链路是真实的，SHP parser 本身不是这条 E2E 的验证对象。
+
+## 验收结果
+
+2026-09-08 实测：
+
+```text
+npm run test:gis
+6 files / 46 tests passed
+
+npm run test:gis:e2e
+18 tests passed
+
+npm run build
+passed
+```
+
+E2E 同时继续覆盖旧 query → locate → highlight、异常参数、多工具拒绝、RUN_ERROR、损坏 state patch、用户手势取消、用户显隐优先、引用拉取期间 scene replacement 等场景。
+
+Build 只有既有的大 chunk 和静态/动态重复导入 warning，没有新增构建失败。
+
+## 仍未完成
+
+以下不能宣称完成：
+
+- 真实 LLM 自主 Tool Planning / Orchestration。
+- 真实 GeoServer 查询联调。
+- 生产登录/鉴权接入。
+- 30 秒租约续期和完整跨标签页 Session Binding 生命周期。
+- GeoJSON/KML/CSV/ZIP 等更多用户数据格式。
+- `.prj` / CRS 识别与投影转换。当前首版按 EPSG:4326 经纬度解释几何；投影坐标会被几何校验 fail-closed，避免错误落图。
+- `remove_user_layer / list_user_layers / get_user_layer_info` 的 AG-UI P1 暴露（Capability 内部能力已预留）。
+- 旧绘制、旧样式编辑 UI 全量迁移到 User Vector Capability。
+
+下一阶段的进入条件已经满足：可以先做一次最终架构审查，然后接真实 LLM，把确定性 phase 规划替换成模型依据 `availableFiles / userLayers / Tool Result` 的自主工具选择。
