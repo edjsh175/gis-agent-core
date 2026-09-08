@@ -62,7 +62,6 @@ export function apply(ctx) {
     resolveModel(provider, model) { return Promise.resolve({ provider, id: model, name: model }); },
     async *stream(options) {
       const expectedTools = [
-        'ask_user_question',
         'fit_vector_layer',
         'import_vector_dataset',
         'set_user_layer_visibility',

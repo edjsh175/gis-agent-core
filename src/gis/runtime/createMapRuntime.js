@@ -7,6 +7,7 @@ export function createMapRuntime({ adapter, catalog, state, userVectors = null }
   let generation = 0;
   const scopes = new Set();
   const listeners = new Set();
+  const userOperationListeners = new Set();
   const emit = () =>
     listeners.forEach((listener) => listener(runtime.getState()));
   const invalidate = () => {
@@ -45,6 +46,14 @@ export function createMapRuntime({ adapter, catalog, state, userVectors = null }
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    // UI commands announce intent before any asynchronous work or map mutation.
+    notifyUserOperation() {
+      for (const listener of [...userOperationListeners]) listener();
+    },
+    subscribeUserOperations(listener) {
+      userOperationListeners.add(listener);
+      return () => userOperationListeners.delete(listener);
     },
     createClientScope() {
       const capturedMap = map;

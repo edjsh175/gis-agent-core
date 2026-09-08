@@ -1,12 +1,17 @@
 import { unByKey } from 'ol/Observable.js';
 
-/** Local attribution for capability effects; physical user gestures always win. */
+/** Map facts are observations, never evidence of who initiated a change. */
 export function observeMapOperations({ map, onUserOperation, onObserved = () => {} }) {
-  let ownEffect = null;
   let layerKeys = [];
+  let viewKeys = [];
+  let disposed = false;
   const keys = [];
   const target = map.getViewport();
-  const user = () => onUserOperation();
+  const user = () => { if (!disposed) onUserOperation(); };
+  const observed = () => {
+    if (disposed) return;
+    onObserved();
+  };
   const keydown = (event) => {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', '+', '-', '='].includes(event.key)) user();
   };
@@ -17,16 +22,12 @@ export function observeMapOperations({ map, onUserOperation, onObserved = () => 
     unByKey(layerKeys.flat());
     layerKeys = [];
     const visit = (layer) => {
-      layerKeys.push(layer.on('change:visible', () => {
-        if (ownEffect !== 'visibility') user();
-        onObserved();
-      }));
+      layerKeys.push(layer.on('change:visible', observed));
       const collection = layer.getLayers?.();
       if (collection) {
         const changed = () => {
-          if (!['highlight', 'clear', 'import', 'remove'].includes(ownEffect)) user();
           bindLayers();
-          onObserved();
+          observed();
         };
         layerKeys.push(collection.on(['add', 'remove'], changed));
         layerKeys.push(layer.on('change:layers', changed));
@@ -35,18 +36,16 @@ export function observeMapOperations({ map, onUserOperation, onObserved = () => 
     };
     visit(map.getLayerGroup());
   };
+  const bindView = () => {
+    unByKey(viewKeys);
+    viewKeys = map.getView().on(['change:center', 'change:resolution', 'change:rotation'], observed);
+  };
   bindLayers();
-  keys.push(map.getView().on(['change:center', 'change:resolution', 'change:rotation'], () => {
-    if (ownEffect !== 'locate') user();
-  }));
+  bindView();
   keys.push(map.on('moveend', onObserved));
-  keys.push(map.on(['change:view', 'change:layergroup'], user));
-  let disposed = false;
+  keys.push(map.on('change:view', () => { bindView(); observed(); }));
+  keys.push(map.on('change:layergroup', () => { bindLayers(); observed(); }));
   return {
-    async withEffect(kind, fn) {
-      ownEffect = kind;
-      try { return await fn(); } finally { ownEffect = null; }
-    },
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -54,6 +53,7 @@ export function observeMapOperations({ map, onUserOperation, onObserved = () => 
       target.removeEventListener('wheel', user, true);
       target.removeEventListener('keydown', keydown, true);
       unByKey(keys.flat());
+      unByKey(viewKeys);
       unByKey(layerKeys.flat());
     },
   };

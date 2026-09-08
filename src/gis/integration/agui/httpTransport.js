@@ -6,7 +6,7 @@ import { createRunEnvelope } from './runEnvelope.js';
 /** SDK owns SSE decoding. Its state is a protocol copy, never application state. */
 export function createAguiHttpTransport({ url, fetchImpl = globalThis.fetch }) {
   return {
-    async run(input, { signal }) {
+    async run(input, { signal, onProgress = () => {} }) {
       if (signal.aborted) throw gisError('WORKFLOW_CANCELLED');
       const envelope = createRunEnvelope({ ...input, allowedTools: input.tools.map((tool) => tool.name) });
       const agent = new HttpAgent({ url, threadId: input.threadId,
@@ -25,11 +25,16 @@ export function createAguiHttpTransport({ url, fetchImpl = globalThis.fetch }) {
               if (event.type === 'STATE_DELTA') jsonPatch.applyPatch(structuredClone(state), structuredClone(event.delta), true, false);
               if (event.type === 'STATE_SNAPSHOT' && (!event.snapshot || typeof event.snapshot !== 'object' || Array.isArray(event.snapshot)))
                 throw gisError('PROTOCOL_ERROR');
+              if (event.type === 'CUSTOM') onProgress({ progress: event.value });
+              if (event.type === 'TOOL_CALL_START') onProgress({ currentToolCall: { name: event.toolCallName, toolCallId: event.toolCallId } });
             } catch (error) {
               protocolError = error.code ? error : gisError('PROTOCOL_ERROR', error.message);
               abort();
               return { stopPropagation: true };
             }
+          },
+          onMessagesChanged({ messages }) {
+            if (!protocolError && !signal.aborted) onProgress({ messages: structuredClone(messages) });
           },
         });
         if (protocolError) throw protocolError;

@@ -1,5 +1,22 @@
 import { test, expect } from '@playwright/test';
 
+test('a new instruction captures the replacement map while retaining its conversation', async ({ page }) => {
+  await page.goto('/tests/gis/browser/agui.html?backend=harness');
+  await page.waitForFunction(() => window.aguiTest?.gis.runtime.getState().ready);
+  expect((await page.evaluate(() => window.aguiTest.start())).ok).toBe(true);
+  const result = await page.evaluate(async () => {
+    const { gis, map } = window.aguiTest;
+    const threadId = window.aguiTest.state.value.session.threadId;
+    gis.runtime.detachMap(map);
+    gis.runtime.attachMap(map);
+    const result = await window.aguiTest.send('请说明当前地图状态');
+    return { result, threadId, currentThreadId: window.aguiTest.state.value.session.threadId };
+  });
+  expect(result.result.ok, JSON.stringify(result.result)).toBe(true);
+  expect(result.currentThreadId).toBe(result.threadId);
+  await expect(page.getByTestId('status')).toHaveText('completed');
+});
+
 test('browser → Harness AgentLoop → GIS tools → OpenLayers → continuation', async ({ page }) => {
   await page.goto('/tests/gis/browser/agui.html?backend=harness');
   await page.waitForFunction(() => window.aguiTest?.gis.runtime.getState().ready);

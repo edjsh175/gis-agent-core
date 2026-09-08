@@ -110,6 +110,41 @@ test('user layer change during locate cancels the workflow and preserves the use
   expect(await page.evaluate(() => window.aguiTest.state.value.receipts.some((item) => item.result.effect.status === 'applied'))).toBe(false);
 });
 
+test('system changes while waiting for the model update context without takeover', async ({ page }) => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  await page.route('**/__gis-agui/run', async (route) => { await gate; await route.continue(); });
+  await page.evaluate(() => { window.aguiTest.start(); });
+  await expect(page.getByTestId('status')).toHaveText('running');
+  const state = await page.evaluate(() => {
+    const { map, layer } = window.aguiTest;
+    layer.setVisible(false);
+    map.getView().setResolution(map.getView().getResolution() / 2);
+    return window.aguiTest.state.value;
+  });
+  expect(state.status).toBe('running');
+  expect(state.context.data.visibleLayers).toEqual([]);
+  release();
+  expect((await page.evaluate(() => window.aguiTest.pending)).ok).toBe(true);
+  await expect(page.getByTestId('status')).toHaveText('completed');
+});
+
+test('explicit asynchronous user command takes over before its mutation', async ({ page }) => {
+  await page.evaluate(() => { window.aguiTest.start('vector'); });
+  await page.waitForFunction(() => window.aguiTest.map.getView().getAnimating());
+  const result = await page.evaluate(async () => {
+    const { gis, layer } = window.aguiTest;
+    gis.runtime.notifyUserOperation();
+    const cancelledBeforeMutation = window.aguiTest.state.value.status;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    layer.setVisible(false);
+    return { cancelledBeforeMutation, result: await window.aguiTest.pending, visible: layer.getVisible() };
+  });
+  expect(result.cancelledBeforeMutation).toBe('cancelled');
+  expect(result.result.error.code).toBe('WORKFLOW_CANCELLED');
+  expect(result.visible).toBe(false);
+});
+
 test('scene replacement during reference fetch cannot run against the new map', async ({ page }) => {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
@@ -122,3 +157,38 @@ test('scene replacement during reference fetch cannot run against the new map', 
   expect(result.error.code).toBe('STALE_CONTEXT');
   expect((await inspect(page)).toolResults).toHaveLength(0);
 });
+
+test('fit cascades zoom visibility into MapContext and the next server run', async ({ page }) => {
+  await page.evaluate(() => {
+    const { map, layer } = window.aguiTest;
+    map.getView().on('change:resolution', () => {
+      layer.setVisible(map.getView().getZoom() < 12);
+    });
+  });
+  expect((await page.evaluate(() => window.aguiTest.start('vector'))).ok).toBe(true);
+  await expect(page.getByTestId('status')).toHaveText('completed');
+  const state = await page.evaluate(() => window.aguiTest.state.value);
+  expect(state.receipts.find((item) => item.result.effect.kind === 'locate').result.effect.status).toBe('applied');
+  expect(state.context.data.visibleLayers).toEqual([]);
+  const server = await inspect(page);
+  expect(server.receivedRunIds).toHaveLength(5);
+  expect(server.states[3].visibleLayers).toEqual([]);
+  expect(server.toolResults).toHaveLength(4);
+});
+
+for (const gesture of ['wheel', 'drag']) {
+  test(`${gesture} during Agent fit still cancels`, async ({ page }) => {
+    await page.evaluate(() => { window.aguiTest.start('vector'); });
+    await page.waitForFunction(() => window.aguiTest.map.getView().getAnimating());
+    const box = await page.locator('#map').boundingBox();
+    await page.mouse.move(box.x + 200, box.y + 150);
+    if (gesture === 'wheel') await page.mouse.wheel(0, 100);
+    else {
+      await page.mouse.down();
+      await page.mouse.move(box.x + 250, box.y + 180, { steps: 5 });
+      await page.mouse.up();
+    }
+    await expect(page.getByTestId('status')).toHaveText('cancelled');
+    expect((await page.evaluate(() => window.aguiTest.pending)).error.code).toBe('WORKFLOW_CANCELLED');
+  });
+}

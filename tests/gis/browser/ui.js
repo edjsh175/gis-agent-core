@@ -12,6 +12,8 @@ import { useMainStore } from '../../../src/store/index.js';
 import { useGisCapabilities } from '../../../src/gis/application.js';
 import manager from '../../../src/components/pipeline/decision/common/UnifiedHighlightManager.js';
 import bus from '../../../src/utils/mitt.js';
+import GisAgentComposer from '../../../src/gis/components/panel/GisAgentComposer.vue';
+import GisAgentMessages from '../../../src/gis/components/panel/GisAgentMessages.vue';
 if (!import.meta.env.DEV) throw new Error('Development-only test entry');
 const pinia = createPinia();
 setActivePinia(pinia);
@@ -40,10 +42,14 @@ const map = new Map({
 window.map2d = map;
 const gis = useGisCapabilities();
 gis.runtime.attachMap(map);
+const agentMode = new URLSearchParams(window.location.search).has('agent');
+const agentStatus = ref('idle');
+const agentAcceptSend = ref(true);
+const agentSent = ref([]);
+const agentMessages = ref([{ id: 'blank-assistant', role: 'assistant', content: '' }]);
 const open = ref(true);
 const app = createApp({
-  render: () =>
-    h('div', [
+  render: () => h('div', [
       h(
         'button',
         { onClick: () => (open.value = !open.value) },
@@ -51,8 +57,25 @@ const app = createApp({
       ),
       open.value ? h(FeatureQuery) : null,
       h(LayerList),
+      agentMode ? h('div', { 'data-testid': 'agent-fixture' }, [
+        h(GisAgentComposer, {
+          status: agentStatus.value,
+          onSend: (message, acknowledge) => {
+            agentSent.value.push(message);
+            if (agentAcceptSend.value) acknowledge();
+          },
+        }),
+        h(GisAgentMessages, {
+          messages: agentMessages.value,
+          status: agentStatus.value,
+          receipts: [],
+        }),
+      ]) : null,
     ]),
 });
 app.config.warnHandler = (message) => console.warn(message);
 app.use(pinia).use(ElementPlus).mount('#app');
-window.uiTest = { gis, map, manager, store, bus, open };
+window.uiTest = {
+  gis, map, manager, store, bus, open,
+  agentStatus, agentAcceptSend, agentSent, agentMessages,
+};

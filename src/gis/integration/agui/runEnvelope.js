@@ -6,11 +6,12 @@ export function createRunEnvelope({ threadId, runId, allowedTools }) {
   let started = false;
   let finished = false;
   let call = null;
-  let events = 0;
+  let eventBytes = 0;
   const fail = () => { throw gisError('PROTOCOL_ERROR'); };
   return {
     accept(event) {
-      if (++events > 2000 || finished) fail();
+      eventBytes += JSON.stringify(event).length;
+      if (eventBytes > 2_000_000 || finished) fail();
       if (event.type === 'RUN_STARTED') {
         if (started || event.threadId !== threadId || event.runId !== runId) fail();
         started = true;
@@ -38,6 +39,9 @@ export function createRunEnvelope({ threadId, runId, allowedTools }) {
           break;
         case 'STATE_SNAPSHOT': case 'STATE_DELTA':
         case 'TEXT_MESSAGE_START': case 'TEXT_MESSAGE_CONTENT': case 'TEXT_MESSAGE_END':
+          break;
+        case 'CUSTOM':
+          if (event.name !== 'gis.progress' || !['thinking', 'responding'].includes(event.value?.phase)) fail();
           break;
         default: fail();
       }

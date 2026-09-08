@@ -77,7 +77,11 @@ const app = createApp({
       h('button', { onClick: () => start() }, '执行确定性流程'),
       h('button', { onClick: controller.stop }, '取消'),
       h('button', { onClick: controller.clear }, '清除高亮'),
-      h('button', { onClick: () => layer.setVisible(!layer.getVisible()) }, '切换图层'),
+      h('button', { onClick: async () => {
+        gis.runtime.notifyUserOperation();
+        await Promise.resolve();
+        layer.setVisible(!layer.getVisible());
+      } }, '切换图层'),
       h('output', { 'data-testid': 'status' }, controller.state.value.status),
     ]);
   },

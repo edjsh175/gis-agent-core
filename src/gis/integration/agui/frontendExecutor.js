@@ -2,7 +2,7 @@ import { asFailure, gisError } from '../../contracts.js';
 import { canonicalArguments, validateToolCall } from './frontendTools.js';
 
 /** One workflow owns one scope and one deduplication ledger. No replay after disposal. */
-export function createFrontendExecutor({ scope, assertActive, resolveReference, signal, mapContext, withEffect = (_, fn) => fn() }) {
+export function createFrontendExecutor({ scope, assertActive, resolveReference, signal, mapContext }) {
   const calls = new Map();
   let queue = Promise.resolve();
   const actions = {
@@ -42,7 +42,7 @@ export function createFrontendExecutor({ scope, assertActive, resolveReference, 
           }
           assertActive();
           invoked = true;
-          const result = await withEffect(kind, () => scope[method](input));
+          const result = await scope[method](input);
           assertActive();
           const observed = mapContext.getSnapshot();
           return { ...result, effect: {

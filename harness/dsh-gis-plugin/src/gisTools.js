@@ -1,18 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { FRONTEND_TOOLS, validateToolCall } from '../../../src/gis/integration/agui/frontendTools.js';
 import { GIS_TOOL_OUTPUT_SCHEMA, normalizeFrontendResult } from './resultContract.js';
+import { GIS_USER_VECTOR_TOOL_NAMES } from './gisCapabilities.js';
 
 export const name = 'gis-tool-consumer';
 export const inject = ['tools', 'gisFrontend'];
 
-const USER_VECTOR_TOOL_NAMES = new Set([
-  'import_vector_dataset',
-  'set_vector_style',
-  'fit_vector_layer',
-  'set_user_layer_visibility',
-]);
+const USER_VECTOR_TOOL_NAME_SET = new Set(GIS_USER_VECTOR_TOOL_NAMES);
 
-export const GIS_USER_VECTOR_TOOLS = FRONTEND_TOOLS.filter((tool) => USER_VECTOR_TOOL_NAMES.has(tool.name));
+export const GIS_USER_VECTOR_TOOLS = FRONTEND_TOOLS.filter((tool) => USER_VECTOR_TOOL_NAME_SET.has(tool.name));
 
 function mapContextMessage(mapContext) {
   return {

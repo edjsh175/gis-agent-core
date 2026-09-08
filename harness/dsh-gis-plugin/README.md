@@ -2,7 +2,7 @@
 
 23dmaps 的 DeepSeek Harness GIS 集成包。GIS 业务能力继续由 23dmaps 浏览器端执行；Harness 负责模型编排、工具调用、等待前端真实效果回执，以及把最新 MapContext 送入后续模型 Step。
 
-## 当前范围：H0-H2
+## 当前范围：H0-H3
 
 默认 bundle 已形成完整 GIS Capability Seam：
 
@@ -87,16 +87,18 @@ assistant tool-call
 
 ## 测试分层
 
-保留两条独立浏览器测试通道：
+保留三条独立浏览器测试通道：
 
-1. `npm run test:gis:e2e`：原 deterministic AG-UI Fixture，验证协议错误、取消、stale context 等回归；
-2. `npm run test:gis:harness-e2e`：真实 Harness `WebServer + AgentLoop + Pending Provider` 驱动 23dmaps `HttpAgent + FrontendExecutor + OpenLayers`。
+1. `npm run test:gis:e2e`：deterministic AG-UI Fixture，验证协议错误、取消、stale context 等回归；
+2. `npm run test:gis:harness-e2e`：真实 Harness `WebServer + AgentLoop + Pending Provider` + Mock LLM，稳定验证 Runtime / Browser 集成；
+3. `npm run test:gis:harness-real-e2e`：真实 `deepseek-official / deepseek-v4-flash`，验证模型依据 MapContext 和 Tool Result 自主连续选择 GIS Tool，并让真实 OpenLayers 产生可验证效果。
 
-Harness Browser E2E 使用 `mockLlmProvider.js` 做确定性模型决策，只为了稳定验证 Runtime / Browser 集成；默认 GIS bundle 不加载该 Adapter，真实运行仍由 Harness 配置的 LLM 决策。
+Mock Harness Browser E2E 使用 `mockLlmProvider.js` 做确定性模型决策，只为了稳定验证 Runtime / Browser 集成；默认 GIS bundle 不加载该 Adapter。H3 Real E2E 已验证真实 DeepSeek 能完成 `import_vector_dataset → set_vector_style → fit_vector_layer → final answer`。
+
+AG-UI Session Binding 的 `configVersion` 使用独立协议版本 `harness-gis-v1`，不再与 H0-H3 项目阶段编号耦合。
 
 ## 尚未完成
 
-- 真实 DeepSeek 模型自主 Tool Planning 的最终 Gold Case；
 - 真实 GeoServer 查询联调；
 - 生产认证与跨标签页冲突策略；
 - 完整租约续期；

@@ -11,7 +11,7 @@
 
 这证明了 **后端 Agent Runtime 可以通过 AG-UI 驱动当前浏览器中的 GIS Capability，并等待真实地图效果回执后继续运行**。
 
-浏览器 AG-UI Gold Case 保留 `tests/gis/agui/deterministicService.js` 作为确定性协议回归，同时已完成 DeepSeek Harness H0-H2 与独立 Harness Browser E2E：23dmaps 内的 out-of-tree GIS bundle 通过真实 Harness `ToolRuntime + AgentLoop + WebServer` 驱动浏览器 OpenLayers，验证 `LLM step → GIS Tool → pending provider → AG-UI → Browser GIS effect → Tool Result → MapContext → 下一 step`。真实 DeepSeek Browser E2E 入口已明确绑定 `deepseek-official / deepseek-v4-flash` 并接入 Harness `credentials-local`；2026-09-08 当前真实返回为 `MISSING_CREDENTIAL`，说明本机 Harness credentials store 尚未配置 `DEEPSEEK_API_KEY`。此前用 `headless` 得到的 429 实际来自 Harness 默认 `zhipu / glm-5.3-flash`，不能作为 DeepSeek 结论，现已废弃。真实 GeoServer、生产认证、完整租约续期和跨标签页生产冲突仍未完成。
+浏览器 AG-UI Gold Case 保留 `tests/gis/agui/deterministicService.js` 作为确定性协议回归，同时 DeepSeek Harness H0-H3 已闭环：23dmaps 内的 out-of-tree GIS bundle 通过真实 Harness `ToolRuntime + AgentLoop + WebServer` 驱动浏览器 OpenLayers，验证 `LLM step → GIS Tool → pending provider → AG-UI → Browser GIS effect → Tool Result → MapContext → 下一 step`。真实 DeepSeek Browser E2E 明确绑定 `deepseek-official / deepseek-v4-flash` 并通过 Harness `credentials-local` 读取本机凭证，真实自主 Tool Planning Gold Case 已通过。真实 GeoServer、生产认证、完整租约续期和跨标签页生产冲突仍未完成。
 
 ## 架构边界
 
@@ -126,7 +126,7 @@ userLayers[]
 
 浏览器测试使用真实 OpenLayers `VectorLayer/VectorSource/Style/View`；为了让测试不依赖仓库外二进制 SHP 文件，E2E 的数据解码器注入固定 GeoJSON Feature。`file_ref/layer_ref/AG-UI/OL` 链路是真实的，SHP parser 本身不是这条 E2E 的验证对象。
 
-## DeepSeek Harness H0-H2
+## DeepSeek Harness H0-H3
 
 新增 `harness/dsh-gis-plugin/`，作为 23dmaps 自己维护的 Harness out-of-tree bundle，不修改 `D:\deepseek-harness` 的 `agent-loop` 或 core packages。
 
@@ -150,7 +150,7 @@ H0 的 Fake Provider 只保留为无浏览器的 Harness 回归测试 Provider�
 
 Harness Tool 成功边界新增 fail-closed 约束：`ok: true` 必须同时证明 `effect.status: applied`；`import_vector_dataset` 还必须返回非空 `layer_ref`。AG-UI transport-only 字段在进入模型 Tool Result 前被剥离。
 
-H0-H2 已通过以下验证：
+H0-H3 已通过以下验证：
 
 1. 23dmaps 单测覆盖 Service Provider 单例/释放、Abort、四个 User Vector Tool、未知 `layer_ref`、成功 effect 门槛、transport 字段剥离、Pending Provider 单 settlement 和共享参数契约。
 2. 使用 `D:\deepseek-harness` 真实 `ToolRuntime + AgentLoop + MockAdapter` 运行同一 Turn：Tool Promise 未 resolve 前 Agent 保持 running 且不会提前产生下一模型请求；Browser receipt resolve 后 Harness 自动写入 `tool/result` 并进入下一 step，没有通过 `agent.followup()` 伪造 Tool continuation。
@@ -158,13 +158,13 @@ H0-H2 已通过以下验证：
 4. 新增 GIS Agent Policy，在 Agent 创建阶段通过 scoped `tools.restrict()` 将模型实际可见工具限制为四个 User Vector Tool + `ask_user_question`。测试 Adapter 会直接检查模型收到的 `options.tools`，有 bash/web/fs/subagent 等额外工具即失败。
 5. 新增独立 Browser Harness E2E lane：真实 Harness `WebServer + AgentLoop + Pending Provider` 与 23dmaps `HttpAgent + FrontendExecutor + OpenLayers` 完成 `import → style → fit → final answer` 全链路；原 18 条 deterministic E2E 保留不变。
 6. 真实模型联调额外暴露并修复两层失败语义漏洞：Bridge 不再把 `agent.whenIdle()` 当成成功，而是读取 durable `turn/end.data.reason`，`reason.kind = error` 映射为 AG-UI `RUN_ERROR`；浏览器 `runEnvelope` 也不再把合法 `RUN_ERROR` 误判成 `PROTOCOL_ERROR`，而是保留为 `AGENT_RUN_FAILED`。因此模型失败时 workflow 会进入 `failed`，不会再出现“模型失败但前端假 completed”。
-7. 真实 DeepSeek 模型自主 Tool Planning / Orchestration Gold Case 实测通过：在 `~/.dsh/.credentials.yaml` 中配置 `DEEPSEEK_API_KEY` 凭证后，`npm run test:gis:harness-real-e2e` 调用真实 `deepseek-official / deepseek-v4-flash` 模型，模型依据自然语言输入自主完成 `import_vector_dataset` → `set_user_layer_style` → `fit_user_layer_bounds` 的多轮工具编排，收据流均标记为 `applied` 且 `delivered`，OpenLayers 图层与样式精确生效，最终状态成功收敛为 `completed`。
+7. H3 真实 DeepSeek 模型自主 Tool Planning / Orchestration Gold Case 实测通过：在 `~/.dsh/.credentials.yaml` 中配置 `DEEPSEEK_API_KEY` 凭证后，`npm run test:gis:harness-real-e2e` 调用真实 `deepseek-official / deepseek-v4-flash` 模型，模型依据自然语言输入自主完成 `import_vector_dataset` → `set_vector_style` → `fit_vector_layer` 的多轮工具编排，收据流均标记为 `applied` 且 `delivered`，OpenLayers 图层与样式精确生效，最终状态成功收敛为 `completed`。
 
 bundle 已通过 Harness profile 安装与 `--dump-config` 组装验证，默认结构为 `gis-frontend-service / gis-frontend-pending-provider / gis-user-vector-tools / gis-ask-user-tool / gis-agent-policy / gis-agui-bridge`。
 
 ## 验收结果
 
-2026-09-08 H0-H2 收口及真实模型联调后实测：
+2026-09-08 H0-H3 收口后实测：
 
 ```text
 npm run test:gis
