@@ -37,10 +37,22 @@ async function main() {
   ]);
 
   const gisRoot = path.resolve('harness/dsh-gis-plugin/src');
-  const [service, pendingProvider, tools, policy, bridge] = await Promise.all([
+  const [
+    service,
+    pendingProvider,
+    tools,
+    businessService,
+    businessPendingProvider,
+    businessTools,
+    policy,
+    bridge,
+  ] = await Promise.all([
     import(pathToFileURL(path.join(gisRoot, 'gisFrontendService.js')).href),
     import(pathToFileURL(path.join(gisRoot, 'pendingProvider.js')).href),
     import(pathToFileURL(path.join(gisRoot, 'gisTools.js')).href),
+    import(pathToFileURL(path.join(gisRoot, 'businessArtifactFrontendService.js')).href),
+    import(pathToFileURL(path.join(gisRoot, 'businessArtifactPendingProvider.js')).href),
+    import(pathToFileURL(path.join(gisRoot, 'businessArtifactTools.js')).href),
     import(pathToFileURL(path.join(gisRoot, 'gisAgentPolicy.js')).href),
     import(pathToFileURL(path.join(gisRoot, 'aguiBridge.js')).href),
   ]);
@@ -59,6 +71,11 @@ async function main() {
   service.apply(ctx);
   pendingProvider.apply(ctx);
   tools.apply(ctx);
+  businessService.apply(ctx);
+  businessPendingProvider.apply(ctx);
+  businessTools.apply(ctx, {
+    baseUrl: 'http://127.0.0.1:3189/__business-artifacts',
+  });
   policy.apply(ctx);
   await ctx.plugin(credentialsLocalModule.default, { watch: false });
   deepSeekModule.apply(ctx, { thinking: 'enabled', reasoningEffort: 'high' });

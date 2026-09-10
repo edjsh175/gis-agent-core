@@ -8,10 +8,13 @@ import { createLayerCatalog } from '../../../src/gis/catalog.js';
 import { createMapRuntime } from '../../../src/gis/runtime/createMapRuntime.js';
 import { createOpenLayersAdapter } from '../../../src/gis/adapters/openlayersAdapter.js';
 import { createMapContext } from '../../../src/gis/integration/createMapContext.js';
+import { createDataCapabilities } from '../../../src/gis/data/createDataCapabilities.js';
 import { createFileReferenceStore } from '../../../src/gis/user-vector/fileReferenceStore.js';
 import { createUserVectorCapabilities } from '../../../src/gis/user-vector/createUserVectorCapabilities.js';
 import { UnifiedHighlightManager } from '../../../src/components/pipeline/decision/common/UnifiedHighlightManager.js';
 import { useAguiWorkflow } from '../../../src/gis/integration/agui/useAguiWorkflow.js';
+import BusinessCardBoard from '../../../src/business-artifacts/components/BusinessCardBoard.vue';
+import { createBusinessCardMapActionExecutor } from '../../../src/business-artifacts/integration/mapActionExecutor.js';
 if (!import.meta.env.DEV) throw new Error('Development-only test entry');
 
 const backend = new URLSearchParams(window.location.search).get('backend') ?? 'deterministic';
@@ -56,14 +59,47 @@ const mapContext = createMapContext({
   readUserLayers: userVectors.readMapContext,
   readAvailableFiles: () => fileReferences.list(),
 });
-const gis = { runtime, catalog, fileReferences, userVectors, createClientScope: () => runtime.createClientScope(), mapContext };
+const data = createDataCapabilities({
+  catalog,
+  config: { respectsRequestedLimit: true },
+  adapter: {
+    async describeFeatureType() {
+      return { fields: [{ name: 'material', type: 'string' }] };
+    },
+    async queryFeatures(_layer, { cqlFilter }) {
+      if (cqlFilter !== '"material" = \'铸铁\'') throw new Error(`unexpected filter: ${cqlFilter}`);
+      return {
+        type: 'FeatureCollection',
+        totalFeatures: 1,
+        features: [{
+          type: 'Feature',
+          id: 'js_ln.1',
+          geometry: { type: 'LineString', coordinates: [[104.02, 30.02], [104.03, 30.03]] },
+          properties: { material: '铸铁' },
+        }],
+      };
+    },
+  },
+});
+const gis = {
+  runtime,
+  catalog,
+  fileReferences,
+  userVectors,
+  createClientScope: () => runtime.createClientScope(),
+  mapContext,
+  data,
+};
+const businessMapActions = createBusinessCardMapActionExecutor({ gis });
 const app = createApp({
   setup() {
     const controller = useAguiWorkflow({ gis, baseUrl });
     const start = (scenario = 'normal') => {
-      const message = harnessMode || scenario === 'vector'
-        ? '导入这个道路 SHP，把线改成红色 4px、80% 透明度，然后缩放到这个图层。'
-        : '找到编号 GX001 的管线，定位并高亮。';
+      const message = harnessMode && scenario === 'business'
+        ? '统计当前项目管线数量、总长度和材质分布，生成一张概览卡片并永久保存。'
+        : harnessMode || scenario === 'vector'
+          ? '导入这个道路 SHP，把线改成红色 4px、80% 透明度，然后缩放到这个图层。'
+          : '找到编号 GX001 的管线，定位并高亮。';
       const pending = harnessMode
         ? controller.start(message)
         : controller.start(message, { scenario });
@@ -71,7 +107,12 @@ const app = createApp({
       return pending;
     };
     window.aguiTest = { ...controller, start, gis, map, layer, manager, backend,
-      unmount: () => { app.unmount(); runtime.detachMap(map); map.dispose(); },
+      unmount: () => {
+        businessMapActions.dispose();
+        app.unmount();
+        runtime.detachMap(map);
+        map.dispose();
+      },
     };
     return () => h('div', [
       h('button', { onClick: () => start() }, '执行确定性流程'),
@@ -83,6 +124,9 @@ const app = createApp({
         layer.setVisible(!layer.getVisible());
       } }, '切换图层'),
       h('output', { 'data-testid': 'status' }, controller.state.value.status),
+      harnessMode && h(BusinessCardBoard, {
+        executeMapAction: businessMapActions.execute,
+      }),
     ]);
   },
 });

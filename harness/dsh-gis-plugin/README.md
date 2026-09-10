@@ -1,105 +1,145 @@
 # dsh-23dmaps-gis
 
-23dmaps 的 DeepSeek Harness GIS 集成包。GIS 业务能力继续由 23dmaps 浏览器端执行；Harness 负责模型编排、工具调用、等待前端真实效果回执，以及把最新 MapContext 送入后续模型 Step。
+23dmaps 的 DeepSeek Harness GIS / Business Artifact 集成包。Harness 负责模型编排、受控 Tool 调用、等待浏览器真实 Effect 回执，并把最新 MapContext 送入后续模型 Step；GIS 视觉效果仍由 23dmaps 浏览器端的 Capability / OpenLayers 执行，业务成果由 Business Artifact 后端持久化。
 
-## 当前范围：H0-H3
+## 当前范围
 
-默认 bundle 已形成完整 GIS Capability Seam：
+当前已打通两条平级能力链。
+
+GIS：
 
 ```text
-GIS Tool Consumer
-      ↓
-gisFrontend Service Definition
-      ↓
-Pending Browser Provider
-      ↓
-AG-UI Bridge
-      ↓
-23dmaps FrontendExecutor
-      ↓
-GIS Capability / OpenLayers
+Agent
+→ GIS Tool
+→ gisFrontend Pending Provider
+→ AG-UI Bridge
+→ FrontendExecutor
+→ GIS Capability
+→ OpenLayers
+→ Browser Effect
+→ Agent continuation
 ```
 
-主要模块：
+Business Artifact：
 
-- `gisFrontendService.js`：Harness 内部 GIS Frontend Service Definition；
-- `pendingProvider.js`：同一 Harness 进程内持有待浏览器完成的 GIS Tool Promise；
-- `gisTools.js`：模型可见 GIS Tool Consumer；
-- `gisAgentPolicy.js`：在 Agent 创建阶段通过 scoped `tools.restrict()` 收敛模型实际可见工具；
-- `aguiBridge.js`：`/sessions /run /cancel` 的 AG-UI HTTP/SSE 运输与 Session Binding；
-- `fakeProvider.js`：仅用于 H0 无浏览器回归，不进入默认 bundle；
-- `mockLlmProvider.js`：仅用于 Browser Harness E2E，不进入默认 bundle。
+```text
+Agent
+→ Business Tool
+→ Business Artifact Backend
+→ StatisticsSnapshot / CardRecord
+→ businessArtifactFrontend Pending Provider
+→ AG-UI Bridge
+→ BusinessCardBoard / Renderer
+→ Browser Effect
+→ Agent continuation
+```
 
-首批模型可见 GIS 工具：
+Business Artifact 当前生命周期：
+
+```text
+CREATE   ✅
+READ     ✅
+REFRESH  ✅
+UPDATE   ✅
+ARCHIVE  ✅
+DELETE   ✅
+```
+
+## 模型可见 Tool Catalog
+
+GIS User Vector 共 4 个：
 
 - `import_vector_dataset`
 - `set_vector_style`
 - `fit_vector_layer`
 - `set_user_layer_visibility`
-- `ask_user_question`
 
-GIS Agent Policy 会把模型实际 Tool Catalog 限制为以上 5 个工具。测试 Adapter 会直接检查模型请求中的 `options.tools`；若 bash/web/fs/subagent 等额外工具泄漏到 GIS Agent，请求直接失败。
+Business Artifact 共 7 个：
 
-## 单一 Tool Contract
+- `get_pipeline_statistics`
+- `publish_business_card`
+- `list_business_cards`
+- `refresh_business_card`
+- `update_business_card`
+- `archive_business_card`
+- `delete_business_card`
 
-Tool Schema 直接复用 `src/gis/integration/agui/frontendTools.js` 的 `FRONTEND_TOOLS`，参数校验也复用同一文件的 `validateToolCall`。Harness 不维护第二份 GIS Tool Schema。
+合计 11 个模型可见业务/GIS Tool。`gisAgentPolicy` 使用同一 Business Tool Catalog 做 allowlist；测试会校验实际注册的 Business Tools 与 Catalog 一致，避免工具已注册但 Policy 未放行或反向漂移。
+
+## Tool Contract
+
+GIS Tool Schema 复用 `src/gis/integration/agui/frontendTools.js` 的 `FRONTEND_TOOLS` 与参数校验，Harness 不维护第二份 GIS Frontend Schema。
+
+Business Card 的模型可见 JSON Schema 位于 `src/business-artifacts/cardSpecSchema.js`，服务端 Validator 位于 `src/business-artifacts/contracts.js`。两者共享 `cardSpecContract.js` 中的 schema version、枚举、binding path、field/layerId lexical rule 等基础 Contract；服务端继续保留无法或不适合仅靠 JSON Schema 表达的安全校验。
+
+`get_pipeline_statistics` 当前是零参数能力：
+
+```text
+get_pipeline_statistics({})
+```
+
+当前 PoC 的真实含义就是“读取当前工作区允许的管线统计”，模型没有选择 region、metrics、dimensions 的虚假自由度。统计服务确定性生成数量、总长度和材质分布，并返回不可变 `StatisticsSnapshot` 的 `statistics_ref`。
+
+## Refresh / Update / Archive / Delete 语义
+
+`refresh_business_card`：重放原 StatisticsSnapshot 的 dataset / scope / query，创建新 Snapshot，并在同一 `cardId` 上 CAS 更新 revision；不会重新生成 CardSpec 布局。
+
+`update_business_card`：修改标题、描述、布局、block、chartType 或 GIS Action 等 CardSpec 表达；如果已有 `statistics_ref` 仍合法则直接复用，不创建新 Snapshot。
+
+`archive_business_card`：软下架 CardRecord，`active → archived`，revision + 1；CardRecord 和 StatisticsSnapshot 都保留。
+
+`delete_business_card`：永久删除 CardRecord，但不连带删除 StatisticsSnapshot。Snapshot 清理由未来独立 retention / GC 策略负责。
+
+Archive/Delete 的 Browser Effect 使用 revision tombstone，迟到的旧 LIST / PRESENT 不能让已经下架的卡片重新出现。
+
+## refreshable 所有权
+
+“某张卡当前能否 Refresh”由后端 Statistics / Refresh Capability 判断并随卡片列表返回 `refreshable`。Agent Plugin 不再 import `pipelineStatistics.js` 或复制 replay 规则，因此以后新增 parcel / farmland / risk-analysis 等统计 Provider 时，不需要让 Agent Plugin 理解各 Provider 的内部重放协议。
 
 ## 成功语义
 
-模型只会收到经过归一化的 GIS 结果：
+模型只允许依据结构化结果声明成功：
 
-- `ok: true` 必须同时满足 `effect.status: "applied"`；
-- `import_vector_dataset` 成功必须返回非空 `layer_ref`；
-- Browser / AG-UI transport-only 字段不会进入模型 Tool Result；
-- `ok: false` 保留结构化 `error` 与 `effect.status`，供 Agent 决定下一步；
-- 浏览器真实 effect 回执返回之前，Harness Tool Promise 不 settle，Agent 不会提前进入下一模型 Step。
+- GIS 操作：必须 `ok=true` 且 `effect.status=applied`；
+- Create / Update / Refresh：分别区分 `durable` 与 `visible`；
+- Archive / Delete：分别区分 `durable` 与 `removedFromView`；
+- Browser 回执返回前，Harness Tool Promise 不 settle；
+- 409 revision conflict 不自动重试写操作；
+- 持久化已成功但页面 Effect 失败时，不回滚已提交业务成果。
 
-## Pending 生命周期
+## Pending 与 MapContext
 
-Pending Provider 使用 Harness 自己生成的稳定 `requestId` 管理一次浏览器 GIS 操作：
+GIS 和 Business Artifact 分别使用独立 Pending Provider，但通过同一个 AG-UI Bridge 进行请求/回执关联。Pending 使用 Harness 生成的稳定 `requestId` 管理 settlement；`runId/toolCallId` 只承担浏览器协议相关性。
 
-```text
-requested
-→ pending
-├→ resolved
-├→ aborted
-└→ provider disposed
-```
+首次 Run 在 `agent.followup()` 前注入当前 MapContext。GIS Tool 完成后使用 Harness 原生 `ToolRunContext.deferContext()` 把最新 MapContext 放到下一模型 Step，保持 Tool Call / Tool Result 邻接。
 
-同一个 pending request 只有一个 settlement 点；AbortSignal、Provider dispose、重复/迟到回执都在该边界处理。AG-UI 的 `runId/toolCallId` 继续作为浏览器协议关联字段，不作为 Pending Provider 的根身份。
+## 当前 2D PoC 限制
 
-当前恢复边界与 Harness User Questions 一致：浏览器/HTTP 重连可在同一进程内继续，完整 Harness 进程重启后不恢复进程内 Promise，必须 fail closed。
-
-## MapContext
-
-首次 Run 在 `agent.followup()` 前把浏览器当前 MapContext 作为 plugin message 注入 Agent。
-
-GIS Tool 完成后，`gisTools.js` 使用 Harness 原生 `ToolRunContext.deferContext()` 延迟最新 MapContext。Session Log 已验证顺序：
+`createAguiWorkflow()` 当前在一轮 Agent Workflow 开始前统一要求：
 
 ```text
-assistant tool-call
-→ tool/result
-→ plugin MapContext user/message
-→ next model step
+scene === 2d
+ready === true
 ```
 
-因此不会破坏 Tool Call / Tool Result 邻接，也不需要用新的 `agent.followup()` 伪造 continuation。
+因此现阶段即使 `list_business_cards / refresh / update / archive / delete` 本身不需要 OpenLayers，仍只能在 2D GIS Agent Workflow 可运行时由该 Agent 调用。这是当前 PoC 的产品级运行限制，不是 Business Artifact 数据模型的内在依赖。
+
+真正必须依赖 GIS ClientScope 的只有 Card `map_action` 等地图 Effect。若后续要求在 Cesium 3D 场景下也独立管理 Business Artifact，应从 Workflow 能力门禁层解耦，而不是在各 Business Tool 中增加 `if business then skip 2d check` 的特殊旁路。
 
 ## 测试分层
 
-保留三条独立浏览器测试通道：
+- `npm run test:gis`：Repository、Statistics、Tool Contract、AG-UI、revision/tombstone 等单元与集成回归；
+- `npm run test:gis:e2e`：确定性 Browser / OpenLayers / Business Artifact 页面回归；
+- `npm run test:gis:harness-e2e`：真实 Harness WebServer + AgentLoop + Pending Provider + Mock LLM；
+- `npm run test:gis:harness-real-e2e`：真实 DeepSeek 模型自主 Tool Planning 的活体验收。
 
-1. `npm run test:gis:e2e`：deterministic AG-UI Fixture，验证协议错误、取消、stale context 等回归；
-2. `npm run test:gis:harness-e2e`：真实 Harness `WebServer + AgentLoop + Pending Provider` + Mock LLM，稳定验证 Runtime / Browser 集成；
-3. `npm run test:gis:harness-real-e2e`：真实 `deepseek-official / deepseek-v4-flash`，验证模型依据 MapContext 和 Tool Result 自主连续选择 GIS Tool，并让真实 OpenLayers 产生可验证效果。
-
-Mock Harness Browser E2E 使用 `mockLlmProvider.js` 做确定性模型决策，只为了稳定验证 Runtime / Browser 集成；默认 GIS bundle 不加载该 Adapter。H3 Real E2E 已验证真实 DeepSeek 能完成 `import_vector_dataset → set_vector_style → fit_vector_layer → final answer`。
-
-AG-UI Session Binding 的 `configVersion` 使用独立协议版本 `harness-gis-v1`，不再与 H0-H3 项目阶段编号耦合。
+真实 GeoServer `GX:js_ln` 已完成 Statistics / Refresh 验收；不是“尚未联调”。
 
 ## 尚未完成
 
-- 真实 GeoServer 查询联调；
-- 生产认证与跨标签页冲突策略；
-- 完整租约续期；
-- Harness 进程重启后的外部操作持久恢复。
+- 生产真实用户/项目鉴权；
+- Business Artifact 在 3D 场景下的独立管理入口；
+- Archive → Active 的 Restore / Unarchive；
+- StatisticsSnapshot retention / GC；
+- 多用户实时协同和跨标签页冲突策略；
+- Harness 进程重启后的进程内 Pending 恢复。

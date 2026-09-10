@@ -1,7 +1,7 @@
 {
   "name": "gis-agent-core",
-  "version": "0.3.0",
-  "description": "GIS Agent Integration Capabilities, Runtime Adapters and Contracts for WebGIS",
+  "version": "0.4.0",
+  "description": "GIS Agent Integration Capabilities, Runtime Adapters, Business Artifacts and Contracts for WebGIS",
   "main": "src/gis/contracts.js",
   "type": "module",
   "scripts": {
@@ -9,12 +9,14 @@
     "test:gis": "vitest run --config vitest.config.js",
     "test:gis:e2e": "playwright test --config playwright.config.js",
     "test:gis:harness-e2e": "playwright test --config playwright.gis-harness.config.js",
-    "test:gis:harness-real-e2e": "playwright test --config playwright.gis-harness-real.config.js"
+    "test:gis:harness-real-e2e": "playwright test --config playwright.gis-harness-real.config.js",
+    "business-artifacts:dev": "node harness/business-artifacts/start.js --local-dev"
   },
   "keywords": [
     "gis",
     "agent",
     "ag-ui",
+    "business-artifacts",
     "cordis",
     "openlayers",
     "cesium",

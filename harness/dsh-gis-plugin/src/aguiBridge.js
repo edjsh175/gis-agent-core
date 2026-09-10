@@ -3,7 +3,13 @@ import { RunAgentInputSchema, EventSchemas } from '@ag-ui/core';
 import { createAguiEventStream } from './aguiEventStream.js';
 
 export const name = 'gis-agui-bridge';
-export const inject = ['webServer', 'agents', 'gisFrontendPending', 'gisAgentPolicy'];
+export const inject = [
+  'webServer',
+  'agents',
+  'gisFrontendPending',
+  'businessArtifactPending',
+  'gisAgentPolicy',
+];
 
 const PREFIX = '/__gis-harness';
 const GIS_BRIDGE_CONFIG_VERSION = 'harness-gis-v1';
@@ -66,18 +72,48 @@ function findReceipt(input, pending) {
   }
 }
 
+function currentPending(ctx, sessionId) {
+  const business = ctx.businessArtifactPending?.list?.(sessionId)?.[0];
+  if (business)
+    return {
+      request: business,
+      service: ctx.businessArtifactPending,
+      channel: 'business-artifact',
+    };
+  const gis = ctx.gisFrontendPending?.list?.(sessionId)?.[0];
+  return gis
+    ? { request: gis, service: ctx.gisFrontendPending, channel: 'gis' }
+    : null;
+}
+
 async function waitForBoundary(ctx, session) {
-  const current = ctx.gisFrontendPending.list(session.threadId)[0];
-  if (current) return { kind: 'pending', request: current };
+  const current = currentPending(ctx, session.threadId);
+  if (current) return { kind: 'pending', ...current };
 
   let unsubscribe = () => {};
   let onAbort;
   const requested = new Promise((resolve) => {
-    unsubscribe = ctx.gisFrontendPending.subscribe((event) => {
-      if (event.type === 'requested' && event.request.sessionId === session.threadId) {
-        resolve({ kind: 'pending', request: event.request });
-      }
-    });
+    const subscriptions = [
+      ['business-artifact', ctx.businessArtifactPending],
+      ['gis', ctx.gisFrontendPending],
+    ]
+      .filter(([, service]) => typeof service?.subscribe === 'function')
+      .map(([channel, service]) =>
+        service.subscribe((event) => {
+          if (
+            event.type === 'requested' &&
+            event.request.sessionId === session.threadId
+          ) {
+            resolve({
+              kind: 'pending',
+              request: event.request,
+              service,
+              channel,
+            });
+          }
+        })
+      );
+    unsubscribe = () => subscriptions.forEach((dispose) => dispose?.());
   });
   try {
     return await Promise.race([
@@ -315,15 +351,16 @@ export function apply(ctx, config = {}) {
     session.activeRuns.set(input.runId, fingerprint);
     let stream;
     try {
-      const pending = ctx.gisFrontendPending.list(session.threadId)[0];
-    if (pending) {
+      const pendingBoundary = currentPending(ctx, session.threadId);
+    if (pendingBoundary) {
+      const pending = pendingBoundary.request;
       const receipt = findReceipt(input, pending);
       if (!receipt) {
         sendJson(res, 409, failure('TOOL_CALL_CORRELATION_REQUIRED'));
         return;
       }
       stream = createAguiEventStream({ ctx, session: session.handle.agent.session, input, res });
-      const accepted = ctx.gisFrontendPending.resolve(pending.requestId, {
+      const accepted = pendingBoundary.service.resolve(pending.requestId, {
         ...receipt,
         ...(input.state?.gisObserved && typeof input.state.gisObserved === 'object' && !Array.isArray(input.state.gisObserved)
           ? { mapContext: input.state.gisObserved }

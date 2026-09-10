@@ -1,10 +1,12 @@
 import { success, asFailure, gisError } from '../../contracts.js';
 import { FRONTEND_TOOLS } from './frontendTools.js';
 import { createFrontendExecutor } from './frontendExecutor.js';
+import { BUSINESS_ARTIFACT_FRONTEND_TOOLS } from '../../../business-artifacts/integration/frontendTools.js';
+import { createBusinessArtifactFrontendExecutor } from '../../../business-artifacts/integration/frontendExecutor.js';
 
 /** A conversation reuses its live scope; a replacement map is captured only between instructions. */
 export function createAguiWorkflow({
-  gis, session, transport, resolveReference, cancelRemote,
+  gis, businessArtifacts, session, transport, resolveReference, cancelRemote,
   observeOperations, idFactory = () => crypto.randomUUID(), clock = () => Date.now(),
   onChange = () => {}, runTimeoutMs = 30_000,
 }) {
@@ -62,9 +64,17 @@ export function createAguiWorkflow({
       if (initial.scene !== '2d') throw gisError('UNSUPPORTED_CAPABILITY');
       if (!initial.ready) throw gisError('MAP_NOT_READY');
       cleanup();
-      const executor = createFrontendExecutor({ scope, assertActive, resolveReference,
+      const gisExecutor = createFrontendExecutor({ scope, assertActive, resolveReference,
         signal: controller.signal, mapContext: gis.mapContext,
       });
+      const businessExecutor = createBusinessArtifactFrontendExecutor({ application: businessArtifacts });
+      const executor = {
+        execute(call) {
+          return BUSINESS_ARTIFACT_FRONTEND_TOOLS.some((tool) => tool.name === call.name)
+            ? businessExecutor.execute(call)
+            : gisExecutor.execute(call);
+        },
+      };
       observer = observeOperations?.({ map: gis.runtime.getMap(), onUserOperation: () => cancel(), onObserved: emit });
       unsubscribe = gis.runtime.subscribe(() => cancel('STALE_CONTEXT'));
       unsubscribeUser = gis.runtime.subscribeUserOperations?.(() => cancel()) ?? (() => {});
@@ -79,7 +89,12 @@ export function createAguiWorkflow({
         const observed = gis.mapContext.getSnapshot();
         if (!observed.ok) throw gisError(observed.error.code, observed.error.message);
         const runId = idFactory();
-        const tools = failureReceipt ? [] : FRONTEND_TOOLS.filter((tool) => observed.data.supportedTools.includes(tool.name));
+        const tools = failureReceipt
+          ? []
+          : [
+              ...FRONTEND_TOOLS.filter((tool) => observed.data.supportedTools.includes(tool.name)),
+              ...BUSINESS_ARTIFACT_FRONTEND_TOOLS,
+            ];
         progress = { phase: 'thinking' };
         transition(failureReceipt ? 'explaining_failure' : 'running');
         const timeout = setTimeout(() => cancel('RUN_TIMEOUT'), runTimeoutMs);

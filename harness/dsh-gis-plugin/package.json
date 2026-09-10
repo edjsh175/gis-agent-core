@@ -8,6 +8,9 @@
     "./tools": "./src/gisTools.js",
     "./fake-provider": "./src/fakeProvider.js",
     "./pending-provider": "./src/pendingProvider.js",
+    "./business-service": "./src/businessArtifactFrontendService.js",
+    "./business-pending-provider": "./src/businessArtifactPendingProvider.js",
+    "./business-tools": "./src/businessArtifactTools.js",
     "./agent-policy": "./src/gisAgentPolicy.js",
     "./mock-llm": "./src/mockLlmProvider.js",
     "./agui-bridge": "./src/aguiBridge.js"

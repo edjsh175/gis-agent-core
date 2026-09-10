@@ -2,7 +2,9 @@
 
 日期：2026-09-08。
 
-## 当前结论
+> 本文保留 2026-09-08 H0–H3 的历史验收状态，不作为当前 Tool Catalog / Business Artifact 状态真源。当前实现以 `harness/dsh-gis-plugin/README.md`、`business-artifact-card-architecture.md` 和 `business-artifact-card-implementation.md` 为准。
+
+## 当日结论
 
 当前已经完成两条确定性技术验证链路：
 

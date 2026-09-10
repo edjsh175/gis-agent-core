@@ -4,11 +4,13 @@ import { createIntegrationServiceClient } from './serviceClient.js';
 import { createAguiWorkflow } from './createAguiWorkflow.js';
 import { observeMapOperations } from './observeMapOperations.js';
 import { isWorkflowBusy } from './workflowStatus.js';
+import { getBusinessCardApplication } from '../../../business-artifacts/runtime.js';
 
 /** Vue owns mounting/unmounting; all GIS actions stay in the capability scope. */
 export function useAguiWorkflow({ gis, baseUrl, clock = () => Date.now() }) {
   const state = shallowRef({ status: 'idle', messages: [], receipts: [] });
   const service = createIntegrationServiceClient({ baseUrl });
+  const businessArtifacts = getBusinessCardApplication();
   let workflow;
   let generation = 0;
   let disposed = false;
@@ -65,7 +67,7 @@ export function useAguiWorkflow({ gis, baseUrl, clock = () => Date.now() }) {
       }
       activeSession = session;
       const activeWorkflow = createAguiWorkflow({
-        gis, session: activeSession, ...methods,
+        gis, businessArtifacts, session: activeSession, ...methods,
         transport: createAguiHttpTransport({ url: `${baseUrl}/run` }),
         observeOperations: observeMapOperations,
         onChange: (value) => {

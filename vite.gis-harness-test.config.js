@@ -7,6 +7,10 @@ export default mergeConfig(config, {
     host: '127.0.0.1',
     port: 5179,
     proxy: {
+      '/__business-artifacts': {
+        target: 'http://127.0.0.1:3191',
+        changeOrigin: true,
+      },
       '/__gis-harness': {
         target: 'http://127.0.0.1:3190',
         changeOrigin: true,

@@ -1,5 +1,9 @@
 import { gisError } from '../../contracts.js';
 import { validateToolCall } from './frontendTools.js';
+import {
+  BUSINESS_ARTIFACT_FRONTEND_TOOLS,
+  validateBusinessArtifactFrontendCall,
+} from '../../../business-artifacts/integration/frontendTools.js';
 
 /** G0 profile: one complete frontend call, committed only after clean stream end. */
 export function createRunEnvelope({ threadId, runId, allowedTools }) {
@@ -51,7 +55,11 @@ export function createRunEnvelope({ threadId, runId, allowedTools }) {
       if (!call) return null;
       let args;
       try { args = JSON.parse(call.rawArguments); } catch { fail(); }
-      validateToolCall(call.name, args);
+      if (
+        BUSINESS_ARTIFACT_FRONTEND_TOOLS.some((tool) => tool.name === call.name)
+      )
+        validateBusinessArtifactFrontendCall(call.name, args);
+      else validateToolCall(call.name, args);
       return { runId, toolCallId: call.toolCallId, name: call.name, args, rawArguments: call.rawArguments };
     },
   };

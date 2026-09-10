@@ -5,6 +5,12 @@
       name: dsh-23dmaps-gis/pending-provider
     - id: gis-user-vector-tools
       name: dsh-23dmaps-gis/tools
+    - id: business-artifact-frontend-service
+      name: dsh-23dmaps-gis/business-service
+    - id: business-artifact-pending-provider
+      name: dsh-23dmaps-gis/business-pending-provider
+    - id: business-artifact-tools
+      name: dsh-23dmaps-gis/business-tools
     - id: gis-ask-user-tool
       name: '@deepseek-ai/dsh-tool-ask-user'
     - id: gis-agent-policy
